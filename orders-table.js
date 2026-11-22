@@ -3,6 +3,65 @@
 // ==========================================
 let selectedCells = new Set(); // يحتفظ بالخلايا المحددة حالياً (docId_fieldName)
 let lastSelectedCell = null;   // الخلية الأخيرة المحددة كمرجع للـ Shift
+// ===== وضع التعديل والتنقل بين الخلايا =====
+let editingEl = null;   // الخلية المفتوحة للتعديل حالياً
+
+function enterEditMode(el) {
+    if (!el) return;
+    if (editingEl && editingEl !== el) exitEditMode();
+    editingEl = el;
+    el.classList.add('cell-editing');
+    if (el.tagName === 'INPUT') {
+        el.readOnly = false;
+        el.focus();
+        try { const n = el.value.length; el.setSelectionRange(n, n); } catch (_) { }
+    } else {
+        el.focus();
+        try { el.showPicker && el.showPicker(); } catch (_) { }
+    }
+}
+
+function exitEditMode() {
+    if (!editingEl) return;
+    const el = editingEl;
+    editingEl = null;
+    el.classList.remove('cell-editing');
+    if (el.tagName === 'INPUT') el.readOnly = true;
+}
+
+function selectSingleCell(el) {
+    selectedCells.clear();
+    selectedCells.add(`${el.dataset.doc}_${el.dataset.field}`);
+    lastSelectedCell = { docId: el.dataset.doc, fieldName: el.dataset.field, element: el };
+    updateCellVisuals();
+    el.focus();
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function getCellGrid() {
+    return Array.from(document.querySelectorAll('#excel-body tr'))
+        .filter(tr => tr.style.display !== 'none')
+        .map(tr => Array.from(tr.querySelectorAll('[data-doc][data-field]')))
+        .filter(r => r.length);
+}
+
+function moveFrom(el, dRow, dCol, edit = false, wrap = false) {
+    const grid = getCellGrid();
+    let r = grid.findIndex(row => row.includes(el));
+    if (r < 0) return;
+    let c = grid[r].indexOf(el) + dCol;
+    r += dRow;
+    if (wrap) {
+        if (c >= grid[r].length) { r++; c = 0; }
+        else if (c < 0) { r--; c = r >= 0 ? grid[r].length - 1 : 0; }
+    }
+    if (r < 0 || r >= grid.length) return;
+    c = Math.max(0, Math.min(c, grid[r].length - 1));
+    exitEditMode();
+    const target = grid[r][c];
+    selectSingleCell(target);
+    if (edit) enterEditMode(target);
+}
 
 // تحديث الشكل البصري للخلايا المحددة
 function updateCellVisuals() {
@@ -16,6 +75,23 @@ function updateCellVisuals() {
     });
 }
 
+
+window.addEventListener('DOMContentLoaded', () => {
+    const checkDb = setInterval(() => {
+        if (window.db) {
+            clearInterval(checkDb);
+            Promise.all([
+                listenOfficesForOrders(),
+                listenStatusesForOrders(),
+                listenZonesForOrders(),
+                listenCouriersForOrders(),
+                listenStaffForOrders()
+            ]).then(() => listenToOrders());
+
+        }
+    }, 100);
+});
+
 // تفريغ كافة التحديدات
 function clearSelection() {
     selectedCells.clear();
@@ -26,10 +102,21 @@ function clearSelection() {
 let isMouseDown = false;
 
 function handleCellMouseDown(event, docId, fieldName) {
+    // الضغط جوه الخلية المفتوحة للتعديل: سيبها (تحريك المؤشر بس)
+    if (event.target === editingEl) return;
+
+    // أي خلية تانية: اقفل التعديل السابق
+    exitEditMode();
+
+    // القوائم المنسدلة: متفتحش بضغطة واحدة، بس تتحدد
+    if (event.target.tagName === 'SELECT') {
+        event.preventDefault();
+        event.target.focus();
+    }
+
     const cellKey = `${docId}_${fieldName}`;
 
     if (event.ctrlKey || event.metaKey) {
-        // ضغط Ctrl: إضافة أو إلغاء تحديد خلية منفردة
         if (selectedCells.has(cellKey)) {
             selectedCells.delete(cellKey);
         } else {
@@ -37,10 +124,8 @@ function handleCellMouseDown(event, docId, fieldName) {
         }
         lastSelectedCell = { docId, fieldName, element: event.target };
     } else if (event.shiftKey && lastSelectedCell) {
-        // ضغط Shift: تحديد مدى عمودي/أفقي أو كتلة
         selectRange(lastSelectedCell, { docId, fieldName, element: event.target });
     } else {
-        // تحديد خلية واحدة عادية (بدون أزرار إضافية)
         selectedCells.clear();
         selectedCells.add(cellKey);
         lastSelectedCell = { docId, fieldName, element: event.target };
@@ -49,7 +134,6 @@ function handleCellMouseDown(event, docId, fieldName) {
     isMouseDown = true;
     updateCellVisuals();
 }
-
 // التعامل مع السحب بالماوس (Mouse Drag)
 function handleCellMouseEnter(event, docId, fieldName) {
     if (!isMouseDown) return;
@@ -100,22 +184,61 @@ function selectRange(startCell, endCell) {
 
 // مسح محتوى كل الخلايا المحددة عند الضغط على Delete
 function handleKeyDown(event, docId, fieldName, isNumber = false) {
-    if (event.key === "Delete") {
-        event.preventDefault();
+    if (event.ctrlKey || event.metaKey || event.altKey) return; // سيب الاختصارات (Ctrl+C / Z / Y)
 
-        // مسح كافة الخلايا المحددة
-        if (selectedCells.size > 0) {
-            selectedCells.forEach(cellKey => {
-                const [dId, fName] = cellKey.split('_');
-                const inputEl = document.querySelector(`[data-doc="${dId}"][data-field="${fName}"]`);
-                if (inputEl) {
-                    const oldValue = inputEl.value;
-                    inputEl.value = "";
-                    recordHistoryAction(dId, fName, oldValue, "", isNumber);
-                    autoSaveField(dId, fName, "", isNumber, false);
-                }
-            });
-        }
+    const el = event.target;
+    const editing = editingEl === el;
+    const isSelect = el.tagName === 'SELECT';
+
+    switch (event.key) {
+        case 'Enter':
+            if (editing && isSelect) return;      // سيبه يختار من القائمة
+            event.preventDefault();
+            editing ? exitEditMode() : enterEditMode(el);
+            return;
+
+        case 'Escape':
+            if (editing) { event.preventDefault(); exitEditMode(); }
+            return;
+
+        case 'Tab':
+            event.preventDefault();
+            // لو بتعدّل: الخلية اللي بعدها تتفتح للتعديل
+            moveFrom(el, 0, event.shiftKey ? -1 : 1, editing, true);
+            return;
+
+        case 'ArrowUp':
+        case 'ArrowDown':
+            if (editing && isSelect) return;      // اختيار من القائمة المفتوحة
+            event.preventDefault();
+            moveFrom(el, event.key === 'ArrowUp' ? -1 : 1, 0);
+            return;
+
+        case 'ArrowRight':
+        case 'ArrowLeft':
+            event.preventDefault();
+            // الصفحة RTL: يمين = العمود السابق، يسار = العمود التالي
+            moveFrom(el, 0, event.key === 'ArrowRight' ? -1 : 1);
+            return;
+
+        case 'Delete':
+            if (editing) return;                  // أثناء التعديل: حذف حروف عادي
+            event.preventDefault();
+            if (selectedCells.size > 0) {
+                selectedCells.forEach(cellKey => {
+                    const i = cellKey.indexOf('_');
+                    const dId = cellKey.slice(0, i), fName = cellKey.slice(i + 1);
+                    const inputEl = document.querySelector(`[data-doc="${dId}"][data-field="${fName}"]`);
+                    if (inputEl) {
+                        const oldValue = inputEl.value;
+                        const num = inputEl.type === 'number';
+                        inputEl.value = "";
+                        recordHistoryAction(dId, fName, oldValue, "", num);
+                        autoSaveField(dId, fName, "", num, false);
+                    }
+                });
+            }
+            return;
     }
 }
 
@@ -194,6 +317,7 @@ function handleBlur(event, docId, fieldName, isNumber = false) {
     if (tempOldValue !== newValue) {
         recordHistoryAction(docId, fieldName, tempOldValue, newValue, isNumber);
     }
+    if (editingEl === event.target) exitEditMode();
 }
 
 // ==========================================
@@ -227,6 +351,8 @@ async function addNewBlankRowAndFocus() {
             area: "",
             rider: "",
             riderNote: "",
+            address: "",
+            extraNumber: "",
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -282,6 +408,235 @@ function refreshOfficeSelects() {
         sel.value = cur;
     });
 }
+// ==========================================
+// الحالات والمناطق من الإعدادات (Firebase)
+// ==========================================
+let orderStatusesList = [];   // من كوليكشن statuses
+let allZonesList = [];        // كل المناطق من كوليكشن zones
+let orderZonesList = [];      // المناطق النشطة فقط
+
+// بيبني خيارات القائمة، ولو القيمة الحالية مش موجودة في الإعدادات بتفضل ظاهرة (مش بتضيع)
+function buildListOptions(names, current = '', unknownLabel = '') {
+    let html = `<option value=""></option>`;
+    if (current && !names.includes(current)) {
+        html += `<option value="${escOpt(current)}" selected>${escOpt(current)}${unknownLabel}</option>`;
+    }
+    html += names.map(n =>
+        `<option value="${escOpt(n)}" ${n === current ? 'selected' : ''}>${escOpt(n)}</option>`
+    ).join('');
+    return html;
+}
+
+function buildStatusOptions(current = '') {
+    return buildListOptions(orderStatusesList.map(s => s.name), current, ' (غير مضافة)');
+}
+
+function buildZoneOptions(current = '') {
+    const known = allZonesList.some(z => z.name === current);
+    return buildListOptions(orderZonesList.map(z => z.name), current, known ? ' (متوقفة)' : ' (غير مسجلة)');
+}
+
+function refreshStatusSelects() {
+    document.querySelectorAll('select[data-field="status"]').forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = buildStatusOptions(cur);
+        sel.value = cur;
+    });
+}
+
+function refreshZoneSelects() {
+    document.querySelectorAll('select[data-field="area"]').forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = buildZoneOptions(cur);
+        sel.value = cur;
+    });
+}
+function riderForOrder(area, fallback) {
+    const z = allZonesList.find(z => z.name === area);
+    return (z && z.courier) || fallback || '';
+}
+
+function buildRiderCell(docId, data) {
+    return `<td class="py-1 px-2">
+        <span data-rider-doc="${docId}" data-rider-fallback="${escOpt(data.rider || '')}"
+            class="block w-full text-center bg-slate-50 border border-slate-200 rounded px-1.5 py-1 text-xs text-slate-700 select-none">${escOpt(riderForOrder(data.area, data.rider))}</span>
+    </td>`;
+}
+function employeeForOrder(area, fallback) {
+    const z = allZonesList.find(z => z.name === area);
+    return (z && z.follower) || fallback || '';
+}
+
+function buildEmployeeCell(docId, data) {
+    return `<td class="py-1 px-2">
+        <span data-employee-doc="${docId}" data-employee-fallback="${escOpt(data.employee || '')}"
+            class="block w-full text-center bg-slate-50 border border-slate-200 rounded px-1.5 py-1 text-xs text-slate-700 select-none">${escOpt(employeeForOrder(data.area, data.employee))}</span>
+    </td>`;
+}
+
+function refreshEmployeeCells() {
+    document.querySelectorAll('[data-employee-doc]').forEach(sp => {
+        const row = sp.closest('tr');
+        const areaSel = row ? row.querySelector('select[data-field="area"]') : null;
+        sp.textContent = employeeForOrder(areaSel ? areaSel.value : '', sp.dataset.employeeFallback);
+    });
+}
+
+function refreshRiderCells() {
+    document.querySelectorAll('[data-rider-doc]').forEach(sp => {
+        const row = sp.closest('tr');
+        const areaSel = row ? row.querySelector('select[data-field="area"]') : null;
+        sp.textContent = riderForOrder(areaSel ? areaSel.value : '', sp.dataset.riderFallback);
+    });
+}
+// لما المنطقة تتغير: المندوب والمتابع ييجوا من إعدادات التقسيم ويتحفظوا على الأوردر
+function applyAreaAssignment(docId, areaName) {
+    const z = allZonesList.find(z => z.name === areaName);
+    const rider = (z && z.courier) || '';
+    const employee = (z && z.follower) || '';
+
+    const row = document.getElementById('row-' + docId);
+    if (row) {
+        const sp = row.querySelector('[data-rider-doc]');
+        if (sp) { sp.textContent = rider; sp.dataset.riderFallback = rider; }
+        const se = row.querySelector('[data-employee-doc]');
+        if (se) { se.textContent = employee; se.dataset.employeeFallback = employee; }
+    }
+
+    window.db.collection('orders').doc(docId).update({
+        rider, employee,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(err => console.error('خطأ تعيين المندوب/المتابع:', err));
+}
+
+function listenStatusesForOrders() {
+    return new Promise(resolve => {
+        if (!window.db) return resolve();
+        let first = true;
+        window.db.collection("statuses").onSnapshot((snapshot) => {
+            orderStatusesList = snapshot.docs
+                .map(doc => ({ id: doc.id, name: String(doc.data().name || '').trim() }))
+                .filter(s => s.name)
+                .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+            refreshStatusSelects();
+            if (first) { first = false; resolve(); }
+        }, (err) => {
+            console.error("خطأ جلب الحالات:", err);
+            if (first) { first = false; resolve(); }
+        });
+    });
+}
+
+function listenZonesForOrders() {
+    return new Promise(resolve => {
+        if (!window.db) return resolve();
+        let first = true;
+        window.db.collection("zones").onSnapshot((snapshot) => {
+            allZonesList = snapshot.docs.map(doc => ({
+                id: doc.id,
+                name: String(doc.data().name || '').trim(),
+                courier: String(doc.data().courier || '').trim(),
+                follower: String(doc.data().follower || '').trim(),
+                active: doc.data().status !== "موقوف"
+            })).filter(z => z.name);
+            orderZonesList = allZonesList
+                .filter(z => z.active)
+                .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+            refreshZoneSelects();
+            refreshRiderCells();
+            refreshEmployeeCells();
+            if (first) { first = false; resolve(); }
+        }, (err) => {
+            console.error("خطأ جلب المناطق:", err);
+            if (first) { first = false; resolve(); }
+        });
+    });
+}
+// ==========================================
+// المناديب والموظفين (المتابعه) من الإعدادات (Firebase)
+// ==========================================
+const LIST_CFG = {
+    couriersCollection: 'couriers',   // ← غيّرها لو اسم الكوليكشن مختلف
+    staffCollection: 'staff'          // ← غيّرها لو اسم الكوليكشن مختلف
+};
+
+let allCouriersList = [];
+let orderCouriersList = [];   // النشطين فقط
+let allStaffList = [];
+let orderStaffList = [];      // النشطين فقط
+
+// نشط = مش موقوف (يدعم الشكلين: active:false أو status:"موقوف")
+const isListItemActive = d => d.active !== false && d.status !== 'موقوف';
+
+function buildCourierOptions(current = '') {
+    const known = allCouriersList.some(c => c.name === current);
+    return buildListOptions(orderCouriersList.map(c => c.name), current, known ? ' (متوقف)' : ' (غير مسجل)');
+}
+
+function buildStaffOptions(current = '') {
+    const known = allStaffList.some(s => s.name === current);
+    return buildListOptions(orderStaffList.map(s => s.name), current, known ? ' (متوقف)' : ' (غير مسجل)');
+}
+
+function refreshCourierSelects() {
+    document.querySelectorAll('select[data-field="rider"]').forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = buildCourierOptions(cur);
+        sel.value = cur;
+    });
+}
+
+function refreshStaffSelects() {
+    document.querySelectorAll('select[data-field="employee"]').forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = buildStaffOptions(cur);
+        sel.value = cur;
+    });
+}
+
+function listenCouriersForOrders() {
+    return new Promise(resolve => {
+        if (!window.db) return resolve();
+        let first = true;
+        window.db.collection(LIST_CFG.couriersCollection).onSnapshot((snapshot) => {
+            allCouriersList = snapshot.docs.map(doc => ({
+                id: doc.id,
+                name: String(doc.data().name || '').trim(),
+                active: isListItemActive(doc.data())
+            })).filter(c => c.name);
+            orderCouriersList = allCouriersList
+                .filter(c => c.active)
+                .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+            refreshCourierSelects();
+            if (first) { first = false; resolve(); }
+        }, (err) => {
+            console.error("خطأ جلب المناديب:", err);
+            if (first) { first = false; resolve(); }
+        });
+    });
+}
+
+function listenStaffForOrders() {
+    return new Promise(resolve => {
+        if (!window.db) return resolve();
+        let first = true;
+        window.db.collection(LIST_CFG.staffCollection).onSnapshot((snapshot) => {
+            allStaffList = snapshot.docs.map(doc => ({
+                id: doc.id,
+                name: String(doc.data().name || '').trim(),
+                active: isListItemActive(doc.data())
+            })).filter(s => s.name);
+            orderStaffList = allStaffList
+                .filter(s => s.active)
+                .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+            refreshStaffSelects();
+            if (first) { first = false; resolve(); }
+        }, (err) => {
+            console.error("خطأ جلب الموظفين:", err);
+            if (first) { first = false; resolve(); }
+        });
+    });
+}
 
 // استماع لحظي للمكاتب (بيرجع Promise بتتحل عند أول تحميل)
 function listenOfficesForOrders() {
@@ -315,14 +670,13 @@ function listenToOrders() {
 
         const openDocs = snapshot.docs.filter(d => d.data().closed !== true);
         if (!openDocs.length) {
-            tableBody.innerHTML = `<tr><td colspan="20" class="py-8 text-center text-slate-400">لا توجد أوردرات مسجلة</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="22" class="py-8 text-center text-slate-400">لا توجد أوردرات مسجلة</td></tr>`;
             return;
         }
 
         const inputClass = "w-full text-center bg-white border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none transition-all select-none";
 
         let rowsHTML = '';
-        // ترتيب الأحدث أولاً، والأوردرات اللي مفيهاش createdAt في الآخر
         const sortedDocs = [...openDocs].sort((a, b) =>
             (b.data().createdAt?.seconds ?? 0) - (a.data().createdAt?.seconds ?? 0));
 
@@ -330,35 +684,33 @@ function listenToOrders() {
             const data = doc.data();
             const docId = doc.id;
 
-            let officeOptionsHTML = buildOfficeOptions(data.officeName || '');
-
-            const buildCell = (field, value, isNum = false, isSelect = false) => {
-                if (isSelect) {
-                    return `
-                    <td class="py-1 px-2">
-                        <select data-doc="${docId}" data-field="${field}" 
-                            onmousedown="handleCellMouseDown(event, '${docId}', '${field}')"
-                            onfocus="handleFocus(event)" 
-                            onchange="recordHistoryAction('${docId}', '${field}', tempOldValue, this.value); autoSaveField('${docId}', '${field}', this.value)" 
-                            class="${inputClass}">
-                            <option value="جديد" ${value === 'جديد' ? 'selected' : ''}>جديد</option>
-                            <option value="قيد التنفيذ" ${value === 'قيد التنفيذ' ? 'selected' : ''}>قيد التنفيذ</option>
-                            <option value="مكتمل" ${value === 'مكتمل' ? 'selected' : ''}>مكتمل</option>
-                        </select>
-                    </td>`;
-                }
-                return `
+            const buildCell = (field, value, isNum = false) => `
                 <td class="py-1 px-2">
-                    <input type="${isNum ? 'number' : 'text'}" data-doc="${docId}" data-field="${field}" value="${value ?? ''}"
+                    <input type="${isNum ? 'number' : 'text'}" data-doc="${docId}" data-field="${field}" value="${escOpt(value ?? '')}" readonly
                         onmousedown="handleCellMouseDown(event, '${docId}', '${field}')"
                         onmouseenter="handleCellMouseEnter(event, '${docId}', '${field}')"
+                        ondblclick="enterEditMode(this)"
                         onfocus="handleFocus(event)" 
                         onblur="handleBlur(event, '${docId}', '${field}', ${isNum})" 
                         onkeydown="handleKeyDown(event, '${docId}', '${field}', ${isNum})" 
                         oninput="autoSaveField('${docId}', '${field}', this.value, ${isNum})" 
                         class="${inputClass}">
                 </td>`;
-            };
+
+            // قائمة منسدلة عامة (حالة / مكتب / منطقة)
+            const buildSelect = (field, optionsHTML, extraJs = '') => `
+                <td class="py-1 px-2">
+                    <select data-doc="${docId}" data-field="${field}" 
+                        onmousedown="handleCellMouseDown(event, '${docId}', '${field}')"
+                        ondblclick="enterEditMode(this)"
+                        onfocus="handleFocus(event)" 
+                        onblur="if (editingEl === this) exitEditMode()"
+                        onkeydown="handleKeyDown(event, '${docId}', '${field}', false)"
+                        onchange="recordHistoryAction('${docId}', '${field}', tempOldValue, this.value); autoSaveField('${docId}', '${field}', this.value); ${extraJs} exitEditMode()" 
+                        class="${inputClass}">
+                        ${optionsHTML}
+                    </select>
+                </td>`;
 
             rowsHTML += `
                 <tr id="row-${docId}" class="hover:bg-slate-50 border-b border-slate-200">
@@ -367,28 +719,21 @@ function listenToOrders() {
                     ${buildCell('phone', data.phone)}
                     ${buildCell('altPhone', data.altPhone)}
                     ${buildCell('returns', data.returns)}
-                    ${buildCell('status', data.status, false, true)}
+                    ${buildSelect('status', buildStatusOptions(data.status || ''))}
                     ${buildCell('total', data.total, true)}
                     ${buildCell('collected', data.collected, true)}
                     ${buildCell('quantity', data.quantity, true)}
                     ${buildCell('closingNote', data.closingNote)}
                     ${buildCell('recycling', data.recycling)}
-                    ${buildCell('employee', data.employee)}
+                    ${buildEmployeeCell(docId, data)}
                     ${buildCell('employeeNote', data.employeeNote)}
-                    <td class="py-1 px-2">
-                        <select data-doc="${docId}" data-field="officeName" 
-                            onmousedown="handleCellMouseDown(event, '${docId}', 'officeName')"
-                            onfocus="handleFocus(event)" 
-                            onchange="recordHistoryAction('${docId}', 'officeName', tempOldValue, this.value); autoSaveField('${docId}', 'officeName', this.value)" 
-                            class="${inputClass}">
-                            ${officeOptionsHTML}
-                        </select>
-                    </td>
-                    ${buildCell('companyName', data.companyName)}
+                    ${buildSelect('officeName', buildOfficeOptions(data.officeName || ''))}                    ${buildCell('companyName', data.companyName)}
                     ${buildCell('officeNote', data.officeNote)}
-                    ${buildCell('area', data.area)}
-                    ${buildCell('rider', data.rider)}
+                    ${buildSelect('area', buildZoneOptions(data.area || ''), `applyAreaAssignment('${docId}', this.value);`)}                       
+                    ${buildRiderCell(docId, data)}                    
                     ${buildCell('riderNote', data.riderNote)}
+                    ${buildCell('address', data.address)}
+                    ${buildCell('extraNumber', data.extraNumber, true)}
                     <td class="py-2 px-2 text-center flex items-center justify-center gap-1.5">
                         <span id="sync-icon-${docId}" class="text-xs text-slate-400"><i class="fa-solid fa-cloud"></i></span>
                         <button onclick="removeRow('${docId}')" class="text-rose-500 hover:text-rose-700 p-1"><i class="fa-solid fa-trash"></i></button>
@@ -397,18 +742,28 @@ function listenToOrders() {
             `;
         });
 
+        const prev = document.activeElement;
+        const keep = (prev && prev.dataset && prev.dataset.doc)
+            ? { doc: prev.dataset.doc, field: prev.dataset.field, edit: editingEl === prev }
+            : null;
+        editingEl = null;
+
         tableBody.innerHTML = rowsHTML;
-        updateCellVisuals(); // إعادة تطبيق حالة التحديد عند تحديث القائمة
-        renderTable(); // يحافظ على فلتر البحث الحالي
+        updateCellVisuals();
+
+        if (keep) {
+            const el = document.querySelector(`[data-doc="${keep.doc}"][data-field="${keep.field}"]`);
+            if (el) { el.focus(); if (keep.edit) enterEditMode(el); }
+        }
+        renderTable();
     }, (err) => {
         console.error("فشل تحميل الأوردرات:", err);
         const tableBody = document.getElementById('excel-body');
         if (tableBody) {
-            tableBody.innerHTML = `<tr><td colspan="20" class="py-8 text-center text-rose-500 text-xs">تعذر تحميل الأوردرات: ${err.code || ''} ${err.message || ''}</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="22" class="py-8 text-center text-rose-500 text-xs">تعذر تحميل الأوردرات: ${err.code || ''} ${err.message || ''}</td></tr>`;
         }
     });
 }
-
 // ==========================================
 // البحث في الجدول (خانة البحث بتنادي renderTable)
 // ==========================================
@@ -449,15 +804,6 @@ function removeRow(docId) {
     }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-    const checkDb = setInterval(() => {
-        if (window.db) {
-            clearInterval(checkDb);
-            listenOfficesForOrders().then(() => listenToOrders());
-        }
-    }, 100);
-});
-
 // ==========================================================
 // orders-excel.js — تحميل ورفع جدول الطلبات (Excel <-> Firebase)
 // تحميل: كل الأوردرات بنفس أعمدة الجدول في ملف xlsx
@@ -468,7 +814,7 @@ const ORDERS_XLSX = {
     collection: 'orders',
     idColumn: 'docId',          // عمود معرّف المستند في Firebase (متعدّلوش)
     sheetName: 'Orders',
-    defaultStatus: 'جديد'
+    defaultStatus: ' '
 };
 
 // أعمدة الجدول بنفس ترتيبها (key = اسم الحقل في Firebase، label = عنوان العمود)
@@ -491,7 +837,9 @@ const ORDERS_COLUMNS = [
     { key: 'officeNote', label: 'م المكتب' },
     { key: 'area', label: 'المنطقه' },
     { key: 'rider', label: 'المندوب' },
-    { key: 'riderNote', label: 'م المندوب' }
+    { key: 'riderNote', label: 'م المندوب' },
+    { key: 'address', label: 'العنوان' },
+    { key: 'extraNumber', label: 'الرقم', num: true }
 ];
 
 // ---------- أدوات ----------
@@ -666,6 +1014,13 @@ async function importFromExcel(event) {
         });
 
         const toDeleteIds = [...existing.keys()].filter(id => !seenIds.has(id));
+        // الحالات الموجودة في الملف وغير مضافة في الإعدادات -> هتتضاف تلقائياً
+        const knownStatuses = new Set(orderStatusesList.map(s => s.name));
+        const newStatuses = new Set();
+        [...toAdd, ...toUpdate.map(u => u.changes)].forEach(d => {
+            const st = String(d.status ?? '').trim();
+            if (st && !knownStatuses.has(st)) newStatuses.add(st);
+        });
 
         if (!toAdd.length && !toUpdate.length && !toDeleteIds.length) {
             input.value = '';
@@ -680,16 +1035,26 @@ async function importFromExcel(event) {
             `• إضافة: ${toAdd.length} أوردر جديد\n` +
             `• حذف (موجودين على النظام ومش في الملف): ${toDeleteIds.length}\n` +
             `• بدون تغيير: ${unchanged}\n` +
+            (newStatuses.size ? `• حالات جديدة هتتضاف للإعدادات: ${[...newStatuses].join('، ')}\n` : '') +
             (duplicates ? `• صفوف مكررة اتجاهلت: ${duplicates}\n` : '') +
             `\nتكمل؟`;
         if (!confirm(summary)) { input.value = ''; return; }
 
+        // --- التنفيذ على دفعات ---
         // --- التنفيذ على دفعات ---
         const FV = firebase.firestore.FieldValue;
         const ops = [];
         toUpdate.forEach(u => ops.push(b => b.update(col.doc(u.id), { ...u.changes, updatedAt: FV.serverTimestamp() })));
         toAdd.forEach(d => ops.push(b => b.set(col.doc(), { ...d, createdAt: FV.serverTimestamp() })));
         if (doDelete) toDeleteIds.forEach(id => ops.push(b => b.delete(col.doc(id))));
+
+        // إضافة الحالات الجديدة في الإعدادات
+        newStatuses.forEach(name => ops.push(b =>
+            b.set(window.db.collection('statuses').doc(), {
+                name,
+                createdAt: FV.serverTimestamp()
+            })
+        ));
 
         for (let i = 0; i < ops.length; i += 400) {
             const batch = window.db.batch();
