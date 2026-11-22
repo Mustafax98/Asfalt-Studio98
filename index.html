@@ -10,7 +10,6 @@
     <!-- FontAwesome for beautiful icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- SheetJS CDN (for Excel import/export on the client side) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- Google Fonts (Cairo) -->
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -28,6 +27,16 @@
             /* إطار أخضر */
             outline-offset: -2px;
         }
+
+        .cell-editing {
+            background-color: #fff !important;
+            outline: 2px solid #2563eb !important;
+            outline-offset: -2px;
+        }
+
+        input[data-field][readonly] {
+            cursor: default;
+        }
     </style>
 </head>
 
@@ -38,12 +47,15 @@
     <header id="dynamicTopBar"
         class="bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md py-4 px-[5%] flex flex-col lg:flex-row items-center justify-between gap-6 flex-shrink-0 w-full">
 
-        <!-- 1. القسم الثابت: اللوجو واسم الشركة (ثابت ولا يتغير بتغيير التابات) -->
+        <!-- 1. القسم الثابت: اللوجو واسم الشركة -->
         <div class="flex items-center gap-3 w-full lg:w-[10%] flex-shrink-0">
-            <img src="" alt="شعار الشركة" class="w-10 h-10 rounded-xl object-cover bg-white/10 p-1">
-            <div class="flex flex-col">
-                <span class="text-xs text-emerald-200 font-medium">اسفلت</span>
-                <span class="text-sm font-bold text-white">لوحة التحكم</span>
+            <img id="header-company-logo" src="" alt="شعار الشركة"
+                class="hidden w-12 h-12 rounded-xl object-cover bg-white/0">
+            <div id="header-company-logo-fallback"
+                class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+            </div>
+            <div class="flex flex-col min-w-0">
+                <span id="header-company-name" class="text-s text-emerald-200 font-medium truncate"></span>
             </div>
         </div>
 
@@ -142,22 +154,61 @@
                 </button>
             </div>
 
-            <!-- تاب 5: الإعدادات -->
+            <!-- تاب 5 : المراجعه -->
             <div id="topbar-panel-5" class="topbar-panel hidden flex items-center justify-between w-full">
-                <h1 class="text-lg font-bold text-white">إعدادات النظام</h1>
-                <p class="text-xs text-emerald-200">آخر تعديل: منذ ساعة</p>
-            </div>
 
+                <!-- اختيار الفترة: عنصر واحد (من - إلى) + اختصارات -->
+                <div class="flex flex-wrap items-center gap-3">
+                    <h1 class="text-lg font-bold text-white">مراجعة</h1>
+                    <div
+                        class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus-within:border-emerald-500 transition">
+                        <i class="fa-regular fa-calendar text-emerald-600 text-xs"></i>
+                        <span class="text-[11px] font-semibold text-slate-500">من</span>
+                        <input type="date" id="review-from" onchange="reviewOnRangeInput('from')"
+                            class="bg-transparent text-xs text-slate-700 focus:outline-none">
+                        <span class="text-[11px] font-semibold text-slate-500">إلى</span>
+                        <input type="date" id="review-to" onchange="reviewOnRangeInput('to')"
+                            class="bg-transparent text-xs text-slate-700 focus:outline-none">
+                    </div>
+
+                    <div id="review-presets" class="flex flex-wrap items-center gap-1.5">
+                        <button type="button" data-preset="today" onclick="reviewPreset('today')"
+                            class="px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition bg-white text-slate-600 border-slate-200">اليوم</button>
+                        <button type="button" id="review-edit-btn" onclick="reviewToggleEdit()"
+                            class="px-3 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-pen"></i>
+                            <span>تعديل</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex  items-center gap-3">
+                    <button type="button" onclick="reviewExportPDF()"
+                        class="px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-pdf"></i><span>تقرير PDF</span>
+                    </button>
+                    <button type="button" onclick="reviewExportSelectedOffice()"
+                        class="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-excel"></i><span>Excel للمكتب</span>
+                    </button>
+                    <button type="button" onclick="reviewExportAllOffices()"
+                        class="px-3 py-1.5 text-xs font-semibold bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-zipper"></i><span>Excel كل المكاتب</span>
+                    </button>
+                </div>
+            </div>
             <!-- تاب 6 : التطبيقات -->
             <div id="topbar-panel-6" class="topbar-panel hidden flex items-center justify-between w-full">
                 <h1 class="text-lg font-bold text-white">إعدادات التطبيقات</h1>
                 <p class="text-xs text-emerald-200">آخر تعديل: منذ ساعة</p>
             </div>
-            <!-- تاب 7 : المراجعه -->
+
+            <!-- تاب 7: الإعدادات -->
             <div id="topbar-panel-7" class="topbar-panel hidden flex items-center justify-between w-full">
-                <h1 class="text-lg font-bold text-white">مراجعة</h1>
-                <span class="text-xs bg-white/20 text-white px-3 py-1 rounded-full font-medium">للقراءة فقط</span>
+                <h1 class="text-lg font-bold text-white">إعدادات النظام</h1>
+                <p class="text-xs text-emerald-200">آخر تعديل: منذ ساعة</p>
             </div>
+
         </div>
     </header>
 
@@ -368,6 +419,21 @@
                                             class="resizer absolute top-0 left-0 h-full w-1 cursor-col-resize hover:bg-blue-500 active:bg-blue-700 transition-colors">
                                         </div>
                                     </th>
+                                    <th class="relative py-2.5 px-3 border-b border-l border-slate-200 min-w-[140px] text-center"
+                                        data-col-index="20">
+                                        العنوان
+                                        <div
+                                            class="resizer absolute top-0 left-0 h-full w-1 cursor-col-resize hover:bg-blue-500 active:bg-blue-700 transition-colors">
+                                        </div>
+                                    </th>
+
+                                    <th class="relative py-2.5 px-3 border-b border-l border-slate-200 min-w-[90px] text-center"
+                                        data-col-index="21">
+                                        الرقم
+                                        <div
+                                            class="resizer absolute top-0 left-0 h-full w-1 cursor-col-resize hover:bg-blue-500 active:bg-blue-700 transition-colors">
+                                        </div>
+                                    </th>
 
                                     <th class="py-2.5 px-3 border-slate-200 text-center w-16">إجراء</th>
                                 </tr>
@@ -445,10 +511,22 @@
 
                     <div
                         class="border-b pb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                        <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
-                            <i class="fa-solid fa-map-location-dot text-emerald-500"></i>
-                            التقسيم الذكي
-                        </h2>
+                        <div class="space-y-2 mb-4 pb-4 border-b border-slate-200">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500 mb-1">المندوب</label>
+                                <select id="zoning-courier-selector" onchange="zoningSetCourier(this.value)" disabled
+                                    class="w-full p-2.5 border rounded-lg text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60">
+                                    <option value="">بدون مندوب</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500 mb-1">المتابعة</label>
+                                <select id="zoning-follower-selector" onchange="zoningSetFollower(this.value)" disabled
+                                    class="w-full p-2.5 border rounded-lg text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60">
+                                    <option value="">بدون متابعة</option>
+                                </select>
+                            </div>
+                        </div>
 
                         <div class="flex items-center gap-2 w-full md:w-auto">
                             <div
@@ -466,6 +544,9 @@
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <!-- عمود قائمة المناطق المفعّلة -->
                         <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col">
+                            <!-- المندوب والمتابعة للمنطقة المحددة -->
+
+
                             <h3 class="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">المناطق النشطة
                                 حالياً</h3>
                             <div id="active-partition-regions" class="space-y-2 overflow-y-auto max-h-[350px]">
@@ -483,7 +564,14 @@
                                         لم يتم اختيار منطقة
                                     </span>
                                 </div>
-
+                                <select id="zoning-courier-selector" onchange="zoningSetCourier(this.value)" disabled
+                                    class="p-2.5 border rounded-lg text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-[160px]">
+                                    <option value="">بدون مندوب</option>
+                                </select>
+                                <select id="zoning-follower-selector" onchange="zoningSetFollower(this.value)" disabled
+                                    class="p-2.5 border rounded-lg text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-[160px]">
+                                    <option value="">بدون متابعة</option>
+                                </select>
                                 <div class="relative flex gap-2 w-full sm:w-auto max-w-xs">
                                     <input type="text" id="quick-add-order-code" placeholder="أدخل كود الطلب..."
                                         class="p-2.5 border rounded-lg text-xs font-mono uppercase focus:ring-2 focus:ring-emerald-500 w-full"
@@ -537,129 +625,390 @@
             </div>
 
             <!-- 4. تابة الحسابات -->
-            <div id="main-panel-4" class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto space-y-6">
-                <!-- شريط البحث الموحد الشامل -->
-                <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <div class="relative">
-                        <label class="block text-xs font-bold text-slate-600 mb-1 text-right">
-                            بحث شامل في التقارير (بالاسم أو رقم الموبايل للمندوب أو المكتب)
-                        </label>
-                        <div class="relative">
-                            <span
-                                class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                            </span>
-                            <input type="text" id="search-all-input"
-                                placeholder="ابحث باسم المندوب، المكتب، أو رقم الموبايل..."
-                                class="w-full bg-white border border-slate-200 rounded-xl py-2 pr-9 pl-3 text-xs text-slate-700 text-right focus:outline-none focus:border-blue-500 transition-all">
+            <div id="main-panel-4" class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto gap-4" dir="rtl">
+
+                <!-- البحث -->
+                <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">المندوب أو المنطقة (اسم / رقم
+                                موبايل)</label>
+                            <div class="relative">
+                                <span
+                                    class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                                    <i class="fa-solid fa-motorcycle text-xs"></i>
+                                </span>
+                                <input type="text" id="cl-search" list="cl-datalist" autocomplete="off"
+                                    placeholder="اكتب اسم المندوب أو رقمه أو المنطقة..."
+                                    class="w-full pr-9 pl-3 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500">
+                                <datalist id="cl-datalist"></datalist>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">بحث عن أوردر (كود / عميل /
+                                موبايل)</label>
+                            <div class="relative">
+                                <span
+                                    class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                                    <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                                </span>
+                                <input type="text" id="cl-order-search" autocomplete="off"
+                                    placeholder="كود الأوردر لاستلام المرتجع أو الفلوس..."
+                                    class="w-full pr-9 pl-3 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500">
+                            </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- جدول المناديب -->
-                <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-3">
-                    <div class="flex items-center justify-between">
-                        <h4 class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                            <i class="fa-solid fa-motorcycle text-emerald-600"></i> تقارير أداء المناديب والماليات
-                        </h4>
-                        <span class="text-xs text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg">
-                            الإجمالي: <span id="drivers-count">0</span>
-                        </span>
-                    </div>
-                    <div class="overflow-x-auto rounded-xl border border-slate-100">
-                        <table class="w-full text-right text-xs">
-                            <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
-                                <tr>
-                                    <th class="p-3">اسم المندوب</th>
-                                    <th class="p-3 text-center">المسلمة</th>
-                                    <th class="p-3 text-center">المرتجعات</th>
-                                    <th class="p-3 text-center text-amber-600">جزئي</th>
-                                    <th class="p-3 text-center text-purple-600">استبدال</th>
-                                    <th class="p-3 text-center">نسبة النجاح</th>
-                                    <th class="p-3 text-center font-bold text-slate-800">الإجمالي الأساسي</th>
-                                    <th class="p-3 text-center text-rose-600">خصومات</th>
-                                    <th class="p-3 text-center text-indigo-600">عمولة المندوب للطلب</th>
-                                    <th class="p-3 text-left font-bold text-emerald-700">الصافي للمندوب</th>
-                                </tr>
-                            </thead>
-                            <tbody id="drivers-report-tbody" class="divide-y divide-slate-100 text-slate-700"></tbody>
-                        </table>
+                    <div class="flex flex-wrap items-center gap-3 text-xs">
+                        <label class="flex items-center gap-1.5 font-semibold text-slate-600 cursor-pointer">
+                            <input type="checkbox" id="cl-hide-done" class="accent-emerald-600"> إخفاء اللي تم استلامه
+                        </label>
+                        <button type="button" onclick="clResetFilters()"
+                            class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold transition">مسح
+                            الفلاتر</button>
+                        <div class="flex-1"></div>
+                        <button type="button" onclick="clReceiveAllVisible('return')"
+                            class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-box-open"></i> استلام كل المرتجعات الظاهرة
+                        </button>
+                        <button type="button" onclick="clReceiveAllVisible('cash')"
+                            class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-hand-holding-dollar"></i> استلام كل الفلوس الظاهرة
+                        </button>
                     </div>
                 </div>
 
-                <!-- جدول مكاتب الشحن -->
-                <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-3">
-                    <div class="flex items-center justify-between">
-                        <h4 class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                            <i class="fa-solid fa-building text-blue-600"></i> تقارير مكاتب وشركات الشحن والماليات
-                        </h4>
-                        <span class="text-xs text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg">
-                            الإجمالي: <span id="offices-count">0</span>
+                <!-- الكروت (بتتملي من JS، والضغط على كارت بيفلتر الجدول) -->
+                <div id="cl-cards" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3"></div>
+
+                <!-- الأوردرات -->
+                <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-table text-emerald-600 text-xs"></i> أوردرات المندوب
+                            <span id="cl-filter-chip"
+                                class="hidden px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"></span>
                         </span>
+                        <span id="cl-summary" class="text-[11px] font-semibold text-slate-500"></span>
                     </div>
-                    <div class="overflow-x-auto rounded-xl border border-slate-100">
-                        <table class="w-full text-right text-xs">
-                            <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+                    <div class="overflow-auto rounded-xl border border-slate-100 max-h-[55vh]">
+                        <table class="w-full text-right text-xs whitespace-nowrap">
+                            <thead
+                                class="bg-slate-50 text-slate-600 font-bold border-b border-slate-100 sticky top-0 z-10">
                                 <tr>
-                                    <th class="p-3">اسم المكتب / الشركة</th>
-                                    <th class="p-3 text-center">إجمالي الشحنات</th>
-                                    <th class="p-3 text-center">المسلمة</th>
-                                    <th class="p-3 text-center">المرتجعات</th>
-                                    <th class="p-3 text-center text-amber-600">جزئي</th>
-                                    <th class="p-3 text-center text-purple-600">استبدال</th>
-                                    <th class="p-3 text-center">نسبة النجاح</th>
-                                    <th class="p-3 text-center font-bold text-slate-800">إجمالي المبلغ</th>
-                                    <th class="p-3 text-center text-rose-600">خصومات</th>
-                                    <th class="p-3 text-center text-blue-600">عمولة المكتب</th>
-                                    <th class="p-3 text-left font-bold text-blue-800">المستحق للمكتب</th>
+                                    <th class="p-3">ID</th>
+                                    <th class="p-3">العميل</th>
+                                    <th class="p-3">رقم الهاتف</th>
+                                    <th class="p-3 text-center">الحالة</th>
+                                    <th class="p-3 text-center">الإجمالي</th>
+                                    <th class="p-3 text-center">التحصيل</th>
+                                    <th class="p-3">المندوب</th>
+                                    <th class="p-3">المنطقة</th>
+                                    <th class="p-3 text-center">الإجراء</th>
                                 </tr>
                             </thead>
-                            <tbody id="offices-report-tbody" class="divide-y divide-slate-100 text-slate-700"></tbody>
+                            <tbody id="cl-body" class="text-slate-700"></tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <!-- 5. تابة الاعدادات -->
-            <div id="main-panel-5"
-                class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto bg-slate-50/50 p-4 md:p-6">
-                <div
-                    class="max-w-7xl w-full mx-auto bg-white rounded-2xl p-4 md:p-6 border border-slate-200/70 shadow-sm space-y-6 max-h-[600px] overflow-y-auto">
+            <!-- ================================================================
+        2) غيّر الهيدر العلوي (topbar-panel-4) إلى:
+        ================================================================ -->
+            <div id="topbar-panel-4" class="topbar-panel hidden flex items-center justify-between w-full">
+                <h1 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-clipboard-check"></i> التقفيل واستلام المرتجعات
+                </h1>
+                <span class="text-xs bg-white/20 text-white px-3 py-1 rounded-full font-medium">استلام مرتجع / فلوس من
+                    المندوب</span>
+            </div>
 
+            <!-- 6. المراجعة -->
+            <div id="main-panel-5" class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto gap-4" dir="rtl">
+                <!-- (2) كروت الحالات -->
+                <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-emerald-500 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-emerald-700">الطلبات</div>
+                        <div id="review-n-all" class="text-[20px] font-bold text-emerald-600">0</div>
+                        <div class="text-[11px] text-slate-500">القيمة: <span id="review-v-all"
+                                class="font-semibold text-slate-700">0</span></div>
+                    </div>
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-emerald-500 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-emerald-700">الاستلامات</div>
+                        <div id="review-n-recv" class="text-[20px] font-bold text-emerald-600">0</div>
+                        <div class="text-[11px] text-slate-500">القيمة: <span id="review-v-recv"
+                                class="font-semibold text-slate-700">0</span></div>
+                    </div>
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-amber-400 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-amber-700">الجزئي</div>
+                        <div id="review-n-partial" class="text-[20px] font-bold text-amber-600">0</div>
+                        <div class="text-[11px] text-slate-500">القيمة: <span id="review-v-partial"
+                                class="font-semibold text-slate-700">0</span></div>
+                    </div>
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-purple-400 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-purple-700">الاستبدال</div>
+                        <div id="review-n-exch" class="text-[20px] font-bold text-purple-600">0</div>
+                        <div class="text-[11px] text-slate-500">القيمة: <span id="review-v-exch"
+                                class="font-semibold text-slate-700">0</span></div>
+                    </div>
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-rose-400 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-rose-700">رفض رفض</div>
+                        <div id="review-n-rr" class="text-[20px] font-bold text-rose-600">0</div>
+                        <div class="text-[11px] text-slate-500">القيمة: <span id="review-v-rr"
+                                class="font-semibold text-slate-700">0</span></div>
+                    </div>
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-rose-400 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-rose-700">رفض دفع</div>
+                        <div id="review-n-rp" class="text-[20px] font-bold text-rose-600">0</div>
+                        <div class="text-[11px] text-slate-500">القيمة: <span id="review-v-rp"
+                                class="font-semibold text-slate-700">0</span></div>
+                    </div>
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-blue-400 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-blue-700">تدوير</div>
+                        <div id="review-n-rot" class="text-[20px] font-bold text-blue-600">0</div>
+                    </div>
+                    <div
+                        class="bg-white p-3 rounded-xl border border-slate-100 border-t-4 border-t-rose-400 shadow-sm text-center flex flex-col justify-center min-h-[92px]">
+                        <div class="text-[12px] font-semibold text-rose-700">مرتجع</div>
+                        <div id="review-n-ret" class="text-[20px] font-bold text-rose-600">0</div>
+                    </div>
+                </div>
+
+                <!-- (3) الحسابات -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div
+                        class="bg-indigo-50/60 p-3 rounded-xl border border-indigo-100 shadow-sm text-center flex flex-col justify-center min-h-[84px]">
+                        <div class="text-[12px] font-semibold text-indigo-700">إجمالي العمولة</div>
+                        <div id="review-stat-commission" class="text-[20px] font-bold text-indigo-600">0</div>
+                    </div>
+                    <div
+                        class="bg-amber-50/60 p-3 rounded-xl border border-amber-100 shadow-sm text-center flex flex-col justify-center min-h-[84px]">
+                        <div class="text-[12px] font-semibold text-amber-700">المديونية (المطلوب سداده)</div>
+                        <div id="review-stat-debt" class="text-[20px] font-bold text-amber-600">0</div>
+                        <div class="text-[11px] text-slate-500">من إجمالي مطلوب: <span id="review-stat-due"
+                                class="font-semibold text-slate-700">0</span></div>
+                    </div>
+                    <div
+                        class="bg-emerald-50/60 p-3 rounded-xl border border-emerald-100 shadow-sm text-center flex flex-col justify-center min-h-[84px]">
+                        <div class="text-[12px] font-semibold text-emerald-700">المحوّل (التسويات)</div>
+                        <div id="review-stat-paid" class="text-[20px] font-bold text-emerald-600">0</div>
+                    </div>
+                </div>
+
+                <!-- (4) حسابات المكاتب + التحويلات -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+                    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3 min-w-0">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-building text-blue-600 text-xs"></i> حسابات المكاتب
+                            </span>
+                            <span class="text-[11px] text-slate-400">اضغط على مكتب لمراجعته</span>
+                        </div>
+                        <div class="overflow-auto rounded-xl border border-slate-100 max-h-[260px]">
+                            <table class="w-full text-right text-xs whitespace-nowrap">
+                                <thead
+                                    class="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 sticky top-0 z-10">
+                                    <tr>
+                                        <th class="py-2 px-3">المكتب</th>
+                                        <th class="py-2 px-3 text-center">عمولة الأوردر</th>
+                                        <th class="py-2 px-3 text-center">العدد</th>
+                                        <th class="py-2 px-3 text-center">المكتمل</th>
+                                        <th class="py-2 px-3 text-center">التحصيل</th>
+                                        <th class="py-2 px-3 text-center">إجمالي العمولة</th>
+                                        <th class="py-2 px-3 text-center">المطلوب سداده</th>
+                                        <th class="py-2 px-3 text-center">المحوّل</th>
+                                        <th class="py-2 px-3 text-center">المديونية</th>
+                                        <th class="py-2 px-3 text-center">تسوية</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="review-office-body" class="text-slate-700"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="review-extra-slot"
+                        class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3 min-w-0">
+                        <div class="flex items-center justify-between gap-2">
+                            <span id="review-detail-title" class="text-sm font-bold text-slate-700">سجل التحويلات</span>
+                            <button type="button" id="review-detail-clear" onclick="reviewSelectOffice('')"
+                                class="hidden px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 transition">
+                                عرض كل المكاتب
+                            </button>
+                        </div>
+                        <div class="overflow-auto rounded-xl border border-slate-100 max-h-[260px]">
+                            <table class="w-full text-right text-xs whitespace-nowrap">
+                                <thead
+                                    class="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 sticky top-0 z-10">
+                                    <tr>
+                                        <th class="py-2 px-2">التاريخ والموعد</th>
+                                        <th id="review-transfers-office-th" class="py-2 px-2">المكتب</th>
+                                        <th class="py-2 px-2 text-center">نوع التحويل</th>
+                                        <th class="py-2 px-2 text-center">المبلغ (جم)</th>
+                                        <th class="py-2 px-2 text-center">المديونية بعد التحويل</th>
+                                        <th class="py-2 px-2">ملاحظة</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="review-transfers-body" class="text-slate-700"></tbody>
+                            </table>
+                        </div>
+                        <div id="review-transfers-total" class="text-[11px] font-semibold text-slate-500"></div>
+                    </div>
+                </div>
+
+                <!-- (5) الأوردرات -->
+                <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="text-sm font-bold text-slate-700 flex items-center gap-2 whitespace-nowrap">
+                            <i class="fa-solid fa-table text-emerald-600 text-xs"></i> الأوردرات
+                        </div>
+                        <span id="review-orders-filter"
+                            class="hidden items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"></span>
+                        <div class="relative flex-1 min-w-[220px]">
+                            <span
+                                class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                                <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                            </span>
+                            <input type="text" id="review-search"
+                                placeholder="ابحث في الجدول: عميل، كود، موبايل، مكتب، منطقة، مندوب، حالة..."
+                                class="w-full pr-9 pl-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500">
+                        </div>
+                        <span id="review-search-count" class="text-xs text-slate-400"></span>
+                    </div>
+                    <div class="overflow-auto rounded-xl border border-slate-100 max-h-[55vh]">
+                        <table class="w-full text-right text-xs whitespace-nowrap">
+                            <thead
+                                class="bg-slate-50 text-slate-600 font-bold border-b border-slate-100 sticky top-0 z-10">
+                                <tr>
+                                    <th class="p-3">ID</th>
+                                    <th class="p-3">العميل</th>
+                                    <th class="p-3">رقم الهاتف</th>
+                                    <th class="p-3 text-center">الحاله</th>
+                                    <th class="p-3 text-center">الاجمالي</th>
+                                    <th class="p-3 text-center">التحصيل</th>
+                                    <th class="p-3">المكتب</th>
+                                    <th class="p-3 text-center">عمولة الأوردر</th>
+                                    <th class="p-3">المنطقه</th>
+                                    <th class="p-3">المندوب</th>
+                                    <th class="p-3 text-center">وقت الإضافة</th>
+                                </tr>
+                            </thead>
+                            <tbody id="review-body" class="text-slate-700"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. التطبيقات -->
+            <div id="main-panel-6" class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto"></div>
+
+            <!-- 7. تابة الاعدادات -->
+            <div id="main-panel-7"
+                class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto bg-slate-50/50 p-2 md:p-3">
+                <div
+                    class="max-w-[1800px] w-full mx-auto bg-white rounded-2xl p-4 md:p-6 border border-slate-200/70 shadow-sm space-y-6 max-h-[calc(100vh-230px)] overflow-y-auto">
                     <!-- أزرار التبويبات الفرعية -->
                     <div
                         class="flex items-center gap-2 p-1.5 bg-slate-100/80 rounded-xl overflow-x-auto border border-slate-200/50 scrollbar-none">
                         <button id="sub-btn-4-1" onclick="switchSubTab(4, 1)"
                             class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
-                            🏢 المكاتب
+                            ⚙️ عامة
                         </button>
                         <button id="sub-btn-4-2" onclick="switchSubTab(4, 2)"
                             class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
-                            🛵 المناديب
+                            🏢 المكاتب
                         </button>
                         <button id="sub-btn-4-3" onclick="switchSubTab(4, 3)"
                             class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
-                            📍 المناطق
+                            🛵 المناديب
                         </button>
                         <button id="sub-btn-4-4" onclick="switchSubTab(4, 4)"
                             class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
-                            📍 الحالات
+                            📍 المناطق
                         </button>
                         <button id="sub-btn-4-5" onclick="switchSubTab(4, 5)"
                             class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
-                            👨‍💼 الموظفين (CRM)
+                            📍 الحالات
                         </button>
                         <button id="sub-btn-4-6" onclick="switchSubTab(4, 6)"
                             class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
+                            👨‍💼 الموظفين (CRM)
+                        </button>
+                        <button id="sub-btn-4-7" onclick="switchSubTab(4, 7)"
+                            class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
                             🔐 صلاحيات الوصول
+                        </button>
+                        <button id="sub-btn-4-8" onclick="switchSubTab(4, 8)"
+                            class="px-4 py-2 rounded-lg text-xs md:text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all duration-200 whitespace-nowrap">
+                            📱 التطبيقات
                         </button>
                     </div>
 
                     <!-- محتوى التبويبات الفرعية -->
                     <div class="sub-panels-container">
-
-                        <!-- 1. محتوى المكاتب -->
+                        <!-- 1. الإعدادات العامة -->
                         <div id="sub-panel-4-1" class="hidden space-y-5">
+                            <div class="pb-3 border-b border-slate-100">
+                                <h3 class="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
+                                    <span>⚙️</span> الإعدادات العامة
+                                </h3>
+                                <p class="text-slate-500 text-xs mt-0.5">بيانات الشركة اللي بتظهر في لوحة التحكم</p>
+                            </div>
+
+                            <form id="general-settings-form" onsubmit="handleGeneralSettingsSubmit(event)"
+                                class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl" autocomplete="off">
+
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-600 mb-1">اسم
+                                            الشركة</label>
+                                        <input type="text" id="general-company-name" required
+                                            oninput="markGeneralDirty()"
+                                            class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500">
+                                    </div>
+                                    <p id="general-settings-msg" class="hidden text-[11px] font-semibold"></p>
+                                    <button type="submit" id="general-save-btn"
+                                        class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50">
+                                        حفظ الإعدادات
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-600 mb-1">شعار الشركة</label>
+                                    <div class="flex items-center gap-4">
+                                        <div
+                                            class="w-20 h-20 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                                            <img id="general-logo-preview" src="" alt=""
+                                                class="hidden w-full h-full object-cover">
+                                            <i id="general-logo-placeholder"
+                                                class="fa-regular fa-image text-slate-300 text-2xl"></i>
+                                        </div>
+                                        <div class="flex flex-col gap-2">
+                                            <label for="general-logo-input"
+                                                class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold cursor-pointer text-center">
+                                                رفع شعار
+                                            </label>
+                                            <input type="file" id="general-logo-input" accept="image/*" class="hidden"
+                                                onchange="handleLogoSelected(event)">
+                                            <button type="button" onclick="removeGeneralLogo()"
+                                                class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold">
+                                                حذف الشعار
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="text-[11px] text-slate-400 mt-2">بيتصغّر تلقائياً لحد 256px قبل الحفظ.</p>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- 2. محتوى المكاتب -->
+                        <div id="sub-panel-4-2" class="hidden space-y-5">
                             <div
                                 class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
                                 <div>
@@ -802,8 +1151,8 @@
                             </div>
                         </div>
 
-                        <!-- 2. محتوى المناديب -->
-                        <div id="sub-panel-4-2" class="hidden space-y-5">
+                        <!-- 3. محتوى المناديب -->
+                        <div id="sub-panel-4-3" class="hidden space-y-5">
                             <div
                                 class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
                                 <div>
@@ -861,8 +1210,8 @@
                             </div>
                         </div>
 
-                        <!-- 3. محتوى المناطق -->
-                        <div id="sub-panel-4-3" class="hidden space-y-5">
+                        <!-- 4. محتوى المناطق -->
+                        <div id="sub-panel-4-4" class="hidden space-y-5">
                             <div
                                 class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
                                 <div>
@@ -918,7 +1267,8 @@
                             </div>
                         </div>
 
-                        <div id="sub-panel-4-4" class="hidden space-y-5">
+                        <!-- 5. محتوى المناطق -->
+                        <div id="sub-panel-4-5" class="hidden space-y-5">
                             <div
                                 class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
                                 <div>
@@ -955,8 +1305,8 @@
                             </div>
                         </div>
 
-                        <!-- 4. محتوى الموظفين (CRM) -->
-                        <div id="sub-panel-4-5" class="hidden space-y-5">
+                        <!-- 6. محتوى الموظفين (CRM) -->
+                        <div id="sub-panel-4-6" class="hidden space-y-5">
                             <div
                                 class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
                                 <div>
@@ -995,10 +1345,12 @@
                                     <thead class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
                                         <tr>
                                             <th class="p-3.5">اسم الموظف</th>
-                                            <th class="p-3.5">رقم الهاتف</th>
-                                            <th class="p-3.5 text-center">أوردرات المستلمة</th>
-                                            <th class="p-3.5 text-center">عدد التواصل/المكالمات</th>
-                                            <th class="p-3.5 text-center">متابعات مفتوحة</th>
+                                            <th class="p-3.5">رقم الموبايل</th>
+                                            <th class="p-3.5 text-center">عدد الحالات</th>
+                                            <th class="p-3.5 text-center">نسبة التواصل</th>
+                                            <th class="p-3.5 text-center">المتسلّم</th>
+                                            <th class="p-3.5 text-center">لم يتقفل</th>
+                                            <th class="p-3.5 text-center">مطلوب إجراء</th>
                                             <th class="p-3.5 text-center">التقييم</th>
                                             <th class="p-3.5 text-center">الحالة</th>
                                             <th class="p-3.5 text-center">إجراءات</th>
@@ -1011,8 +1363,8 @@
                             </div>
                         </div>
 
-                        <!-- 5. صلاحيات الوصول -->
-                        <div id="sub-panel-4-6" class="hidden space-y-5">
+                        <!-- 7. صلاحيات الوصول -->
+                        <div id="sub-panel-4-7" class="hidden space-y-5">
                             <div
                                 class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
                                 <div>
@@ -1065,166 +1417,95 @@
                                 </table>
                             </div>
                         </div>
+
+                        <!-- 8. التطبيقات-->
+                        <div id="sub-panel-4-8" class="hidden space-y-5">
+                            <div class="pb-3 border-b border-slate-100">
+                                <h3 class="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
+                                    <span>📱</span> أعمدة التطبيقات
+                                </h3>
+                                <p class="text-slate-500 text-xs mt-0.5">تحكم في عنوان الكارت المطوي وفي التفاصيل اللي
+                                    تظهر عند فتحه (بيتحفظ تلقائياً)</p>
+                            </div>
+
+                            <!-- تابات التطبيقات الفرعية -->
+                            <div class="flex items-center gap-2 p-1 bg-slate-100 rounded-xl w-fit">
+                                <button type="button" id="apps-tab-btn-follow" onclick="switchAppsSettingsTab('follow')"
+                                    class="px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2">
+                                    <i class="fa-solid fa-headset"></i> تطبيق المتابعه
+                                </button>
+                                <button type="button" id="apps-tab-btn-courier"
+                                    onclick="switchAppsSettingsTab('courier')"
+                                    class="px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2">
+                                    <i class="fa-solid fa-motorcycle"></i> تطبيق المندوب
+                                </button>
+                            </div>
+
+                            <!-- المتابعه -->
+                            <div id="apps-tab-panel-follow"
+                                class="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-4">
+                                <div>
+                                    <div class="text-[11px] font-bold text-slate-500 mb-2">عنوان الكارت (المطوي)</div>
+                                    <div id="app-header-follow" class="grid grid-cols-2 md:grid-cols-4 gap-2"></div>
+                                </div>
+
+                                <!-- التفاصيل + أزرار الفلترة جنب بعض -->
+                                <div class="flex flex-col md:flex-row gap-6 items-start">
+                                    <div class="w-full md:w-1/2">
+                                        <div class="text-[11px] font-bold text-slate-500 mb-2">التفاصيل (عرض / تعديل)
+                                        </div>
+                                        <div id="app-merged-follow"></div>
+                                    </div>
+                                    <div class="w-full md:w-1/2 min-w-0">
+                                        <div class="text-[11px] font-bold text-slate-500 mb-2">أزرار فلترة الحالة
+                                            (بالترتيب اللي تفعّله)</div>
+                                        <div id="app-filters-follow" class="grid grid-cols-2 gap-2"></div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="text-[11px] font-bold text-slate-500 mb-2">ترتيب الحقول (للهيدر
+                                        والتفاصيل والنسخ)</div>
+                                    <div id="app-order-follow" class="space-y-1.5 max-h-72 overflow-y-auto"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- المندوب -->
+                        <div id="apps-tab-panel-courier"
+                            class="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-4">
+                            <div>
+                                <div class="text-[11px] font-bold text-slate-500 mb-2">عنوان الكارت (المطوي)</div>
+                                <div id="app-header-courier" class="grid grid-cols-2 md:grid-cols-4 gap-2"></div>
+                            </div>
+
+                            <!-- التفاصيل + أزرار الفلترة جنب بعض -->
+                            <div class="flex flex-col md:flex-row gap-6 items-start">
+                                <div class="w-full md:w-1/2">
+                                    <div class="text-[11px] font-bold text-slate-500 mb-2">التفاصيل (عرض / تعديل)
+                                    </div>
+                                    <div id="app-merged-courier"></div>
+                                </div>
+                                <div class="w-full md:w-1/2 min-w-0">
+                                    <div class="text-[11px] font-bold text-slate-500 mb-2">أزرار فلترة الحالة
+                                        (بالترتيب اللي تفعّله)</div>
+                                    <div id="app-filters-courier" class="grid grid-cols-2 gap-2"></div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="text-[11px] font-bold text-slate-500 mb-2">ترتيب الحقول (للهيدر
+                                    والتفاصيل والنسخ)</div>
+                                <div id="app-order-courier" class="space-y-1.5 max-h-72 overflow-y-auto"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 6. التطبيقات -->
-<div id="main-panel-6" class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto p-2" dir="rtl">
-    <div class="max-w-7xl w-full mx-auto bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-5">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <i class="fa-solid fa-table-cells-large text-emerald-500"></i>
-                التطبيقات
-            </h2>
         </div>
-
-        <div id="apps-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            <!-- يتم ملؤها من apps.js -->
         </div>
-    </div>
-</div>
-            <!-- 7. المراجعة -->
-            <div id="main-panel-7" class="tab-content hidden flex-1 flex-col min-h-0 overflow-auto gap-4" dir="rtl">
-
-                <!-- اختيار الفترة -->
-                <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-wrap items-end gap-3">
-                    <div>
-                        <label class="block text-[11px] font-bold text-slate-500 mb-1">الشهر</label>
-                        <input type="month" id="review-month"
-                            class="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-bold text-slate-500 mb-1">اليوم (اختياري)</label>
-                        <input type="date" id="review-day"
-                            class="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500">
-                    </div>
-                    <button type="button" onclick="reviewClearDay()"
-                        class="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition">
-                        كل الشهر
-                    </button>
-                    <button type="button" id="review-edit-btn" onclick="reviewToggleEdit()"
-                        class="px-3 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition flex items-center gap-1.5">
-                        <i class="fa-solid fa-pen"></i>
-                        <span>تعديل</span>
-                    </button>
-                    <div class="flex-1"></div>
-                    <div class="text-left">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span id="review-period-label" class="text-sm font-bold text-slate-800"></span>
-                            <span id="review-period-badge"></span>
-                        </div>
-                        <div id="review-period-summary" class="mt-1 text-xs text-slate-500"></div>
-                    </div>
-                </div>
-
-                <!-- حسابات الفترة -->
-                <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-                    <div
-                        class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[70px]">
-                        <div class="text-[12px] font-semibold text-emerald-700">عدد الأوردرات</div>
-                        <div id="review-stat-orders" class="text-[18px] font-semibold text-emerald-600">0</div>
-                    </div>
-                    <div
-                        class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[70px]">
-                        <div class="text-[12px] font-semibold text-emerald-700">الإجمالي</div>
-                        <div id="review-stat-total" class="text-[18px] font-semibold text-emerald-600">0</div>
-                    </div>
-                    <div
-                        class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[70px]">
-                        <div class="text-[12px] font-semibold text-emerald-700">التحصيل</div>
-                        <div id="review-stat-collected" class="text-[18px] font-semibold text-emerald-600">0</div>
-                    </div>
-                    <div
-                        class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[70px]">
-                        <div class="text-[12px] font-semibold text-amber-700">المديونية</div>
-                        <div id="review-stat-diff" class="text-[18px] font-semibold text-amber-600">0</div>
-                    </div>
-                    <div
-                        class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[70px]">
-                        <div class="text-[12px] font-semibold text-indigo-700">العمولة</div>
-                        <div id="review-stat-commission" class="text-[18px] font-semibold text-indigo-600">0</div>
-                    </div>
-                    <div
-                        class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[70px]">
-                        <div class="text-[12px] font-semibold text-blue-700">المرسل للمكاتب</div>
-                        <div id="review-stat-send" class="text-[18px] font-semibold text-blue-600">0</div>
-                    </div>
-                    <div
-                        class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[70px]">
-                        <div class="text-[12px] font-semibold text-rose-700">مرتجع</div>
-                        <div id="review-stat-returns" class="text-[18px] font-semibold text-rose-600">0</div>
-                    </div>
-                </div>
-
-                <!-- توزيع الحالات والمكاتب -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
-                        <div class="text-xs font-bold text-slate-600 mb-2">الأوردرات حسب الحالة</div>
-                        <div id="review-status-chips" class="flex flex-wrap gap-2"></div>
-                    </div>
-                    <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
-                        <div class="text-xs font-bold text-slate-600 mb-2">حسابات المكاتب</div>
-                        <div class="overflow-x-auto max-h-[160px] overflow-y-auto">
-                            <table class="w-full text-right text-xs whitespace-nowrap">
-                                <thead class="text-slate-500 border-b border-slate-100">
-                                    <tr>
-                                        <th class="py-1 px-2">المكتب</th>
-                                        <th class="py-1 px-2 text-center">عمولة الأوردر</th>
-                                        <th class="py-1 px-2 text-center">العدد</th>
-                                        <th class="py-1 px-2 text-center">المكتمل</th>
-                                        <th class="py-1 px-2 text-center">التحصيل</th>
-                                        <th class="py-1 px-2 text-center">إجمالي العمولة</th>
-                                        <th class="py-1 px-2 text-center">المرسل</th>
-                                        <th class="py-1 px-2 text-center">المديونية</th>
-                                        <th class="py-1 px-2 text-center">المحوّل</th>
-                                        <th class="py-1 px-2 text-center">المتبقي</th>
-                                        <th class="py-1 px-2 text-center">تسوية</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="review-office-body" class="text-slate-700"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- الجدول + البحث -->
-                <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
-                    <div class="flex flex-wrap items-center gap-3">
-                        <div class="relative flex-1 min-w-[220px]">
-                            <span
-                                class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-                                <i class="fa-solid fa-magnifying-glass text-xs"></i>
-                            </span>
-                            <input type="text" id="review-search"
-                                placeholder="ابحث في الجدول: عميل، كود، موبايل، مكتب، منطقة، مندوب، حالة..."
-                                class="w-full pr-9 pl-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500">
-                        </div>
-                        <span id="review-search-count" class="text-xs text-slate-400"></span>
-                    </div>
-                    <div class="overflow-auto rounded-xl border border-slate-100 max-h-[55vh]">
-                        <table class="w-full text-right text-xs whitespace-nowrap">
-                            <thead
-                                class="bg-slate-50 text-slate-600 font-bold border-b border-slate-100 sticky top-0 z-10">
-                                <tr>
-                                    <th class="p-3">ID</th>
-                                    <th class="p-3">العميل</th>
-                                    <th class="p-3">رقم الهاتف</th>
-                                    <th class="p-3 text-center">الحاله</th>
-                                    <th class="p-3 text-center">الاجمالي</th>
-                                    <th class="p-3 text-center">التحصيل</th>
-                                    <th class="p-3">المكتب</th>
-                                    <th class="p-3 text-center">عمولة الأوردر</th>
-                                    <th class="p-3">المنطقه</th>
-                                    <th class="p-3">المندوب</th>
-                                    <th class="p-3 text-center">وقت الإضافة</th>
-                                </tr>
-                            </thead>
-                            <tbody id="review-body" class="text-slate-700"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+        </div>
         </div>
     </main>
 
@@ -1260,22 +1541,21 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
-                    <span>الحسابات</span>
+                    <span>تقفيل مرتجعات</span>
                 </button>
                 <button onclick="switchMainTab(5)" id="main-btn-5"
                     class="main-tab-btn flex-1 px-5 py-3 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-2.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50 z-10 relative">
-                    <i class="fa-solid fa-gear me-1"></i>
-                    <span>الاعدادات</span>
+                    <i class="fa-solid fa-clipboard-check"></i>
+                    <span>مراجعه</span>
                 </button>
                 <button onclick="switchMainTab(6)" id="main-btn-6"
                     class="main-tab-btn flex-1 px-5 py-3 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-2.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50 z-10 relative">
-                    <i data-lucide="layout-grid" class="me-1"></i>
-                    <span>التطبيقات</span>
+                    <i class="fa-solid fa-table-cells-large me-1"></i> <span>التطبيقات</span>
                 </button>
                 <button onclick="switchMainTab(7)" id="main-btn-7"
                     class="main-tab-btn flex-1 px-5 py-3 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-2.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50 z-10 relative">
-                    <i class="fa-solid fa-clipboard-check"></i>
-                    <span>مراجعه</span>
+                    <i class="fa-solid fa-gear me-1"></i>
+                    <span>الاعدادات</span>
                 </button>
             </div>
         </nav>
@@ -1314,14 +1594,12 @@
     </div>
 
     <!-- Firebase -->
+    <!-- Firebase (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js";
-
+    <script>
         const firebaseConfig = {
-            apiKey: "AIzaSyCG0aD8GeULidHtdcEJb7IeG3t5iOTAGFs",
+            apiKey: "...",
             authDomain: "bondok-20d85.firebaseapp.com",
             projectId: "bondok-20d85",
             storageBucket: "bondok-20d85.firebasestorage.app",
@@ -1333,18 +1611,23 @@
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
-
         window.db = firebase.firestore();
     </script>
 
     <script src="tabs.js"></script>
     <script src="orders-table.js"></script>
+    <script src="Orders filter.js"></script>
     <script src="zoning.js" defer></script>
     <script src="reports.js"></script>
-    <script src="accounts.js"></script>
+    <script src="closing.js"></script>
     <script src="settings.js"></script>
+    <script src="Staff.js"></script>
+    <script src="apps.js"></script>
     <script src="review.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+    <script src="review-export.js"></script>
+    <script src="couriers.js"></script>
+    <script src="users.js"></script>
 
 </body>
-
 </html>
