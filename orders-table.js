@@ -1167,7 +1167,16 @@ function cdSelect(docs, dayKey) {
         return k === null || k <= dayKey;
     });
 }
-
+function cdParseDay(s) {
+    s = String(s || '').replace(/[\u0660-\u0669]/g, d => d.charCodeAt(0) - 0x0660).trim();
+    let y, m, d, x;
+    if ((x = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/))) { y = +x[1]; m = +x[2]; d = +x[3]; }
+    else if ((x = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/))) { d = +x[1]; m = +x[2]; y = +x[3]; }
+    else return '';
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return '';
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
 async function closeDay() {
     if (!window.db) return alert('قاعدة البيانات غير متصلة بعد.');
 
@@ -1176,7 +1185,7 @@ async function closeDay() {
         closeDayOpenDocs = snap.docs.filter(d => d.data().closed !== true);
         if (!closeDayOpenDocs.length) return alert('لا توجد أوردرات مفتوحة لتقفيلها.');
 
-        document.getElementById('close-day-date').value = cdTodayKey();
+        document.getElementById('close-day-date').value = '';
         updateCloseDayPreview();
 
         const btn = document.getElementById('close-day-confirm');
@@ -1200,13 +1209,13 @@ function closeCloseDayModal() {
 }
 
 function updateCloseDayPreview() {
-    const dayKey = document.getElementById('close-day-date')?.value;
+    const dayKey = cdParseDay(document.getElementById('close-day-date')?.value);
     const box = document.getElementById('close-day-preview');
     const btn = document.getElementById('close-day-confirm');
     if (!box || !btn) return;
 
     if (!dayKey) {
-        box.innerHTML = 'اختار تاريخ التقفيل.';
+        box.innerHTML = 'اكتب تاريخ صحيح، مثال: 2026-11-22';
         btn.disabled = true;
         return;
     }
@@ -1219,7 +1228,7 @@ function updateCloseDayPreview() {
 }
 
 async function confirmCloseDay() {
-    const dayKey = document.getElementById('close-day-date')?.value;
+    const dayKey = cdParseDay(document.getElementById('close-day-date')?.value);
     if (!dayKey || !window.db) return;
 
     const btn = document.getElementById('close-day-confirm');
