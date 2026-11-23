@@ -694,6 +694,133 @@ function clearOrdersRange() {
     ordersRangeRefresh();
 }
 
+// ===== كالندر اختيار الفترة (نافذة واحدة) =====
+const CAL_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+const CAL_DAYS = ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'];   // الأسبوع يبدأ السبت
+let calView = new Date(); calView.setDate(1);
+let calPending = '';   // يوم البداية بعد أول ضغطة
+let calHover = '';
+
+const calKey = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const calFmt = k => k.split('-').reverse().join('/');
+
+function calUpdateLabel() {
+    const lbl = document.getElementById('orders-range-label');
+    if (!lbl) return;
+    if (!ordersViewFrom && !ordersViewTo) { lbl.textContent = 'اختر الفترة'; return; }
+    lbl.textContent = ordersViewFrom === ordersViewTo
+        ? calFmt(ordersViewFrom)
+        : `${calFmt(ordersViewFrom)}  ←  ${calFmt(ordersViewTo)}`;
+}
+
+function calPaint() {
+    const pop = document.getElementById('orders-cal-pop');
+    if (!pop) return;
+    let lo = ordersViewFrom, hi = ordersViewTo;
+    if (calPending) {
+        const other = calHover || calPending;
+        lo = calPending < other ? calPending : other;
+        hi = calPending < other ? other : calPending;
+    }
+    const today = calKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+    pop.querySelectorAll('[data-k]').forEach(b => {
+        const k = b.dataset.k;
+        const isEdge = k === lo || k === hi;
+        const inRange = lo && hi && k > lo && k < hi;
+        b.className = 'h-8 w-8 text-xs rounded-lg transition ' +
+            (isEdge ? 'bg-emerald-600 text-white font-bold'
+                : inRange ? 'bg-emerald-100 text-emerald-800'
+                    : 'text-slate-700 hover:bg-slate-100') +
+            (k === today && !isEdge ? ' ring-1 ring-emerald-400' : '');
+    });
+}
+
+function calRender() {
+    const pop = document.getElementById('orders-cal-pop');
+    if (!pop) return;
+    const y = calView.getFullYear(), m = calView.getMonth();
+    const offset = (new Date(y, m, 1).getDay() + 1) % 7;   // السبت = 0
+    const daysIn = new Date(y, m + 1, 0).getDate();
+
+    let cells = '';
+    for (let i = 0; i < offset; i++) cells += '<span></span>';
+    for (let d = 1; d <= daysIn; d++) cells += `<button type="button" data-k="${calKey(y, m, d)}">${d}</button>`;
+
+    pop.innerHTML = `
+        <div class="flex items-center justify-between mb-2">
+            <button type="button" data-nav="1" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-600"><i class="fa-solid fa-chevron-right text-xs"></i></button>
+            <span class="text-sm font-bold text-slate-700">${CAL_MONTHS[m]} ${y}</span>
+            <button type="button" data-nav="-1" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-600"><i class="fa-solid fa-chevron-left text-xs"></i></button>
+        </div>
+        <div class="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-400 mb-1">${CAL_DAYS.map(d => `<span>${d}</span>`).join('')}</div>
+        <div class="grid grid-cols-7 gap-1 place-items-center" dir="rtl">${cells}</div>
+        <div class="mt-2 text-[11px] text-slate-400 text-center">${calPending ? 'اختر يوم النهاية (أو اضغط نفس اليوم ليوم واحد)' : 'اضغط يوم البداية'}</div>`;
+    calPaint();
+}
+
+function calApply(from, to) {
+    ordersViewFrom = from; ordersViewTo = to;
+    calPending = ''; calHover = '';
+    calUpdateLabel();
+    calClose();
+    ordersRangeRefresh();
+}
+
+function calClose() {
+    document.getElementById('orders-cal-pop')?.remove();
+    document.removeEventListener('mousedown', calOutside, true);
+    document.removeEventListener('keydown', calEsc, true);
+}
+function calOutside(e) {
+    const pop = document.getElementById('orders-cal-pop');
+    const btn = document.getElementById('orders-range-btn');
+    if (pop && !pop.contains(e.target) && !btn.contains(e.target)) { calPending = ''; calHover = ''; calClose(); }
+}
+function calEsc(e) { if (e.key === 'Escape') { calPending = ''; calHover = ''; calClose(); } }
+
+function calOpen() {
+    if (document.getElementById('orders-cal-pop')) return calClose();
+    const btn = document.getElementById('orders-range-btn');
+    const base = ordersViewFrom ? new Date(ordersViewFrom + 'T00:00:00') : new Date();
+    calView = new Date(base.getFullYear(), base.getMonth(), 1);
+    calPending = ''; calHover = '';
+
+    const pop = document.createElement('div');
+    pop.id = 'orders-cal-pop';
+    pop.dir = 'rtl';
+    pop.className = 'fixed z-[10000] w-64 bg-white border border-slate-200 rounded-xl shadow-xl p-3';
+    document.body.appendChild(pop);
+
+    const r = btn.getBoundingClientRect();
+    pop.style.top = (r.bottom + 6) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.right - 256, window.innerWidth - 264)) + 'px';
+
+    pop.addEventListener('click', e => {
+        const nav = e.target.closest('[data-nav]');
+        if (nav) {
+            calView = new Date(calView.getFullYear(), calView.getMonth() + Number(nav.dataset.nav), 1);
+            return calRender();
+        }
+        const b = e.target.closest('[data-k]');
+        if (!b) return;
+        const k = b.dataset.k;
+        if (!calPending) { calPending = k; calHover = k; calPaint(); calRender(); }
+        else {
+            const a = calPending < k ? calPending : k;
+            const z = calPending < k ? k : calPending;
+            calApply(a, z);   // نفس اليوم مرتين = يوم واحد
+        }
+    });
+    pop.addEventListener('mouseover', e => {
+        const b = e.target.closest('[data-k]');
+        if (b && calPending && calHover !== b.dataset.k) { calHover = b.dataset.k; calPaint(); }
+    });
+
+    document.addEventListener('mousedown', calOutside, true);
+    document.addEventListener('keydown', calEsc, true);
+    calRender();
+}
+
 function refreshDaySelect() {
     if (document.getElementById('orders-day-filter')) return;
     const input = document.getElementById('table-search-input');
@@ -703,26 +830,17 @@ function refreshDaySelect() {
     const box = document.createElement('div');
     box.id = 'orders-day-filter';
     box.className = 'flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs whitespace-nowrap';
-    const dcls = 'bg-transparent text-xs text-slate-700 focus:outline-none';
     box.innerHTML = `
-        <i class="fa-regular fa-calendar text-emerald-600"></i>
-        <span class="text-slate-500">من</span>
-        <input type="date" id="orders-from" class="${dcls}">
-        <span class="text-slate-500">إلى</span>
-        <input type="date" id="orders-to" class="${dcls}">
+        <button type="button" id="orders-range-btn" class="flex items-center gap-2 text-slate-700 px-1 py-1">
+            <i class="fa-regular fa-calendar text-emerald-600"></i>
+            <span id="orders-range-label">اختر الفترة</span>
+        </button>
         <button type="button" id="orders-day-clear" class="hidden px-2 py-1 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">الأوردرات المفتوحة ✕</button>`;
     input.closest('.relative').insertAdjacentElement('afterend', box);
 
-    const f = box.querySelector('#orders-from'), t = box.querySelector('#orders-to');
-    f.onchange = () => {
-        if (f.value && (!t.value || t.value < f.value)) t.value = f.value;   // يوم واحد
-        ordersViewFrom = f.value; ordersViewTo = t.value; ordersRangeRefresh();
-    };
-    t.onchange = () => {
-        if (t.value && (!f.value || f.value > t.value)) f.value = t.value;
-        ordersViewFrom = f.value; ordersViewTo = t.value; ordersRangeRefresh();
-    };
+    box.querySelector('#orders-range-btn').onclick = calOpen;
     box.querySelector('#orders-day-clear').onclick = clearOrdersRange;
+    calUpdateLabel();
 }
 
 function renderOrdersSnap(snapshot) {
