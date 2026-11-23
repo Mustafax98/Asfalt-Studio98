@@ -729,7 +729,7 @@ function renderOrdersSnap(snapshot) {
     const tableBody = document.getElementById('excel-body');
     if (!tableBody) return;
 
-        refreshDaySelect();
+    refreshDaySelect();
 
     const rangeOn = !!(ordersViewFrom || ordersViewTo);
     const dayKeyOf = (doc) => {
@@ -748,7 +748,69 @@ function renderOrdersSnap(snapshot) {
         return;
     }
 
-    // ... باقي الكود القديم زي ما هو (inputClass, sortedDocs, rowsHTML ... لحد renderTable();)
+    const inputClass = 'w-full text-center bg-transparent border border-transparent rounded px-1.5 py-1 text-xs text-slate-700 focus:outline-none cursor-default';
+    const ts = d => (d.data().createdAt?.seconds ?? (d.metadata.hasPendingWrites ? Date.now() / 1000 : 0));
+    const sortedDocs = [...openDocs].sort((a, b) => ts(b) - ts(a));
+
+    const textCell = (id, data, field, isNumber = false) => `
+        <td class="py-1 px-2">
+            <input type="${isNumber ? 'number' : 'text'}" readonly
+                data-doc="${id}" data-field="${field}"
+                value="${escOpt(data[field] ?? '')}"
+                class="${inputClass}"
+                onmousedown="handleCellMouseDown(event,'${id}','${field}')"
+                onmouseenter="handleCellMouseEnter(event,'${id}','${field}')"
+                onkeydown="handleKeyDown(event,'${id}','${field}',${isNumber})"
+                onfocus="handleFocus(event)"
+                onblur="handleBlur(event,'${id}','${field}',${isNumber})"
+                oninput="autoSaveField('${id}','${field}',this.value,${isNumber})">
+        </td>`;
+
+    const selectCell = (id, data, field, optionsHtml) => `
+        <td class="py-1 px-2">
+            <select data-doc="${id}" data-field="${field}" class="${inputClass}"
+                onmousedown="handleCellMouseDown(event,'${id}','${field}')"
+                onmouseenter="handleCellMouseEnter(event,'${id}','${field}')"
+                onkeydown="handleKeyDown(event,'${id}','${field}')"
+                onfocus="handleFocus(event)"
+                onblur="handleBlur(event,'${id}','${field}')"
+                onchange="${field === 'area' ? `applyAreaAssignment('${id}', this.value);` : ''}autoSaveField('${id}','${field}',this.value)">
+                ${optionsHtml}
+            </select>
+        </td>`;
+
+    tableBody.innerHTML = sortedDocs.map(d => {
+        const id = d.id, data = d.data();
+        return `<tr id="row-${id}" class="hover:bg-slate-50/60">
+            ${textCell(id, data, 'orderId')}
+            ${textCell(id, data, 'customerName')}
+            ${textCell(id, data, 'phone')}
+            ${textCell(id, data, 'altPhone')}
+            ${textCell(id, data, 'returns')}
+            ${selectCell(id, data, 'status', buildStatusOptions(data.status || ''))}
+            ${textCell(id, data, 'total', true)}
+            ${textCell(id, data, 'collected', true)}
+            ${textCell(id, data, 'quantity', true)}
+            ${textCell(id, data, 'closingNote')}
+            ${textCell(id, data, 'recycling')}
+            ${buildEmployeeCell(id, data)}
+            ${textCell(id, data, 'employeeNote')}
+            ${selectCell(id, data, 'officeName', buildOfficeOptions(data.officeName || ''))}
+            ${textCell(id, data, 'companyName')}
+            ${textCell(id, data, 'officeNote')}
+            ${selectCell(id, data, 'area', buildZoneOptions(data.area || ''))}
+            ${buildRiderCell(id, data)}
+            ${textCell(id, data, 'riderNote')}
+            ${textCell(id, data, 'address')}
+            ${textCell(id, data, 'extraNumber', true)}
+            <td class="py-1 px-2 whitespace-nowrap">
+                <span id="sync-icon-${id}" class="ml-2"></span>
+                <button onclick="removeRow('${id}')" class="text-rose-500 hover:text-rose-700"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    renderTable();
 }
 // ==========================================
 // البحث في الجدول (خانة البحث بتنادي renderTable)
