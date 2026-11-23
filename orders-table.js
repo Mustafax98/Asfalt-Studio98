@@ -324,11 +324,12 @@ function handleBlur(event, docId, fieldName, isNumber = false) {
 // دالة إضافة أوردر جديد فارغ والتركيز عليه
 // ==========================================
 async function addNewBlankRowAndFocus() {
+    
     if (!window.db) {
         alert("خطأ: لم يتم الاتصال بقاعدة البيانات");
         return;
     }
-
+    clearOrdersRange();   // يرجع للأوردرات المفتوحة عشان الأوردر الجديد يظهر
     try {
         // إنشاء مستند جديد بقيم فارغة في الفايربيز
         const docRef = await window.db.collection("orders").add({
@@ -661,7 +662,7 @@ function listenOfficesForOrders() {
     });
 }
 
-let ordersViewDay = '';
+let ordersViewFrom = ''; let ordersViewTo = '';
 let lastOrdersSnap = null;
 
 function listenToOrders() {
@@ -680,37 +681,70 @@ function listenToOrders() {
 }
 
 // قايمة الأيام المقفولة (بتتبني تلقائي جنب خانة البحث)
-function refreshDaySelect(docs) {
+function ordersRangeRefresh() {
+    const clr = document.getElementById('orders-day-clear');
+    if (clr) clr.classList.toggle('hidden', !(ordersViewFrom || ordersViewTo));
+    if (lastOrdersSnap) renderOrdersSnap(lastOrdersSnap);
+}
+
+function clearOrdersRange() {
+    ordersViewFrom = ''; ordersViewTo = '';
+    const f = document.getElementById('orders-from'), t = document.getElementById('orders-to');
+    if (f) f.value = ''; if (t) t.value = '';
+    ordersRangeRefresh();
+}
+
+function refreshDaySelect() {
+    if (document.getElementById('orders-day-filter')) return;
     const input = document.getElementById('table-search-input');
     if (!input) return;
-    let sel = document.getElementById('orders-day-select');
-    if (!sel) {
-        sel = document.createElement('select');
-        sel.id = 'orders-day-select';
-        sel.className = 'px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500';
-        sel.onchange = () => {
-            ordersViewDay = sel.value;
-            if (lastOrdersSnap) renderOrdersSnap(lastOrdersSnap);
-        };
-        input.closest('.relative').insertAdjacentElement('afterend', sel);
-    }
-    const days = [...new Set(docs.map(d => d.data().closedDay).filter(Boolean))].sort().reverse();
-    sel.innerHTML = `<option value="">الأوردرات المفتوحة</option>` +
-        days.map(d => `<option value="${d}" ${d === ordersViewDay ? 'selected' : ''}>يوم ${d}</option>`).join('');
+    document.getElementById('orders-day-select')?.remove();
+
+    const box = document.createElement('div');
+    box.id = 'orders-day-filter';
+    box.className = 'flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs whitespace-nowrap';
+    const dcls = 'bg-transparent text-xs text-slate-700 focus:outline-none';
+    box.innerHTML = `
+        <i class="fa-regular fa-calendar text-emerald-600"></i>
+        <span class="text-slate-500">من</span>
+        <input type="date" id="orders-from" class="${dcls}">
+        <span class="text-slate-500">إلى</span>
+        <input type="date" id="orders-to" class="${dcls}">
+        <button type="button" id="orders-day-clear" class="hidden px-2 py-1 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">الأوردرات المفتوحة ✕</button>`;
+    input.closest('.relative').insertAdjacentElement('afterend', box);
+
+    const f = box.querySelector('#orders-from'), t = box.querySelector('#orders-to');
+    f.onchange = () => {
+        if (f.value && (!t.value || t.value < f.value)) t.value = f.value;   // يوم واحد
+        ordersViewFrom = f.value; ordersViewTo = t.value; ordersRangeRefresh();
+    };
+    t.onchange = () => {
+        if (t.value && (!f.value || f.value > t.value)) f.value = t.value;
+        ordersViewFrom = f.value; ordersViewTo = t.value; ordersRangeRefresh();
+    };
+    box.querySelector('#orders-day-clear').onclick = clearOrdersRange;
 }
 
 function renderOrdersSnap(snapshot) {
     const tableBody = document.getElementById('excel-body');
     if (!tableBody) return;
 
-    refreshDaySelect(snapshot.docs);
+        refreshDaySelect();
 
-    const openDocs = ordersViewDay
-        ? snapshot.docs.filter(d => d.data().closedDay === ordersViewDay)
+    const rangeOn = !!(ordersViewFrom || ordersViewTo);
+    const dayKeyOf = (doc) => {
+        const d = doc.data();
+        const t = d.createdAt || d.updatedAt || d.closedAt;
+        const dt = (t && t.toDate) ? t.toDate() : (doc.metadata.hasPendingWrites ? new Date() : null);
+        return dt ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}` : '';
+    };
+
+    const openDocs = rangeOn
+        ? snapshot.docs.filter(d => { const k = dayKeyOf(d); return k && k >= ordersViewFrom && k <= ordersViewTo; })
         : snapshot.docs.filter(d => d.data().closed !== true);
 
     if (!openDocs.length) {
-        tableBody.innerHTML = `<tr><td colspan="22" class="py-8 text-center text-slate-400">لا توجد أوردرات مسجلة</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="22" class="py-8 text-center text-slate-400">${rangeOn ? 'لا توجد أوردرات في هذه الفترة' : 'لا توجد أوردرات مسجلة'}</td></tr>`;
         return;
     }
 
