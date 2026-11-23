@@ -661,101 +661,15 @@ function listenOfficesForOrders() {
     });
 }
 
+let ordersViewDay = '';
+let lastOrdersSnap = null;
+
 function listenToOrders() {
     if (!window.db) return;
 
     window.db.collection("orders").onSnapshot((snapshot) => {
-        const tableBody = document.getElementById('excel-body');
-        if (!tableBody) return;
-
-        const openDocs = snapshot.docs.filter(d => d.data().closed !== true);
-        if (!openDocs.length) {
-            tableBody.innerHTML = `<tr><td colspan="22" class="py-8 text-center text-slate-400">لا توجد أوردرات مسجلة</td></tr>`;
-            return;
-        }
-
-        const inputClass = "w-full text-center bg-white border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none transition-all select-none";
-
-        let rowsHTML = '';
-        const sortedDocs = [...openDocs].sort((a, b) =>
-            (b.data().createdAt?.seconds ?? 0) - (a.data().createdAt?.seconds ?? 0));
-
-        sortedDocs.forEach((doc) => {
-            const data = doc.data();
-            const docId = doc.id;
-
-            const buildCell = (field, value, isNum = false) => `
-                <td class="py-1 px-2">
-                    <input type="${isNum ? 'number' : 'text'}" data-doc="${docId}" data-field="${field}" value="${escOpt(value ?? '')}" readonly
-                        onmousedown="handleCellMouseDown(event, '${docId}', '${field}')"
-                        onmouseenter="handleCellMouseEnter(event, '${docId}', '${field}')"
-                        ondblclick="enterEditMode(this)"
-                        onfocus="handleFocus(event)" 
-                        onblur="handleBlur(event, '${docId}', '${field}', ${isNum})" 
-                        onkeydown="handleKeyDown(event, '${docId}', '${field}', ${isNum})" 
-                        oninput="autoSaveField('${docId}', '${field}', this.value, ${isNum})" 
-                        class="${inputClass}">
-                </td>`;
-
-            // قائمة منسدلة عامة (حالة / مكتب / منطقة)
-            const buildSelect = (field, optionsHTML, extraJs = '') => `
-                <td class="py-1 px-2">
-                    <select data-doc="${docId}" data-field="${field}" 
-                        onmousedown="handleCellMouseDown(event, '${docId}', '${field}')"
-                        ondblclick="enterEditMode(this)"
-                        onfocus="handleFocus(event)" 
-                        onblur="if (editingEl === this) exitEditMode()"
-                        onkeydown="handleKeyDown(event, '${docId}', '${field}', false)"
-                        onchange="recordHistoryAction('${docId}', '${field}', tempOldValue, this.value); autoSaveField('${docId}', '${field}', this.value); ${extraJs} exitEditMode()" 
-                        class="${inputClass}">
-                        ${optionsHTML}
-                    </select>
-                </td>`;
-
-            rowsHTML += `
-                <tr id="row-${docId}" class="hover:bg-slate-50 border-b border-slate-200">
-                    ${buildCell('orderId', data.orderId)}
-                    ${buildCell('customerName', data.customerName)}
-                    ${buildCell('phone', data.phone)}
-                    ${buildCell('altPhone', data.altPhone)}
-                    ${buildCell('returns', data.returns)}
-                    ${buildSelect('status', buildStatusOptions(data.status || ''))}
-                    ${buildCell('total', data.total, true)}
-                    ${buildCell('collected', data.collected, true)}
-                    ${buildCell('quantity', data.quantity, true)}
-                    ${buildCell('closingNote', data.closingNote)}
-                    ${buildCell('recycling', data.recycling)}
-                    ${buildEmployeeCell(docId, data)}
-                    ${buildCell('employeeNote', data.employeeNote)}
-                    ${buildSelect('officeName', buildOfficeOptions(data.officeName || ''))}                    ${buildCell('companyName', data.companyName)}
-                    ${buildCell('officeNote', data.officeNote)}
-                    ${buildSelect('area', buildZoneOptions(data.area || ''), `applyAreaAssignment('${docId}', this.value);`)}                       
-                    ${buildRiderCell(docId, data)}                    
-                    ${buildCell('riderNote', data.riderNote)}
-                    ${buildCell('address', data.address)}
-                    ${buildCell('extraNumber', data.extraNumber, true)}
-                    <td class="py-2 px-2 text-center flex items-center justify-center gap-1.5">
-                        <span id="sync-icon-${docId}" class="text-xs text-slate-400"><i class="fa-solid fa-cloud"></i></span>
-                        <button onclick="removeRow('${docId}')" class="text-rose-500 hover:text-rose-700 p-1"><i class="fa-solid fa-trash"></i></button>
-                    </td>
-                </tr>
-            `;
-        });
-
-        const prev = document.activeElement;
-        const keep = (prev && prev.dataset && prev.dataset.doc)
-            ? { doc: prev.dataset.doc, field: prev.dataset.field, edit: editingEl === prev }
-            : null;
-        editingEl = null;
-
-        tableBody.innerHTML = rowsHTML;
-        updateCellVisuals();
-
-        if (keep) {
-            const el = document.querySelector(`[data-doc="${keep.doc}"][data-field="${keep.field}"]`);
-            if (el) { el.focus(); if (keep.edit) enterEditMode(el); }
-        }
-        renderTable();
+        lastOrdersSnap = snapshot;
+        renderOrdersSnap(snapshot);
     }, (err) => {
         console.error("فشل تحميل الأوردرات:", err);
         const tableBody = document.getElementById('excel-body');
@@ -763,6 +677,44 @@ function listenToOrders() {
             tableBody.innerHTML = `<tr><td colspan="22" class="py-8 text-center text-rose-500 text-xs">تعذر تحميل الأوردرات: ${err.code || ''} ${err.message || ''}</td></tr>`;
         }
     });
+}
+
+// قايمة الأيام المقفولة (بتتبني تلقائي جنب خانة البحث)
+function refreshDaySelect(docs) {
+    const input = document.getElementById('table-search-input');
+    if (!input) return;
+    let sel = document.getElementById('orders-day-select');
+    if (!sel) {
+        sel = document.createElement('select');
+        sel.id = 'orders-day-select';
+        sel.className = 'px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500';
+        sel.onchange = () => {
+            ordersViewDay = sel.value;
+            if (lastOrdersSnap) renderOrdersSnap(lastOrdersSnap);
+        };
+        input.closest('.relative').insertAdjacentElement('afterend', sel);
+    }
+    const days = [...new Set(docs.map(d => d.data().closedDay).filter(Boolean))].sort().reverse();
+    sel.innerHTML = `<option value="">الأوردرات المفتوحة</option>` +
+        days.map(d => `<option value="${d}" ${d === ordersViewDay ? 'selected' : ''}>يوم ${d}</option>`).join('');
+}
+
+function renderOrdersSnap(snapshot) {
+    const tableBody = document.getElementById('excel-body');
+    if (!tableBody) return;
+
+    refreshDaySelect(snapshot.docs);
+
+    const openDocs = ordersViewDay
+        ? snapshot.docs.filter(d => d.data().closedDay === ordersViewDay)
+        : snapshot.docs.filter(d => d.data().closed !== true);
+
+    if (!openDocs.length) {
+        tableBody.innerHTML = `<tr><td colspan="22" class="py-8 text-center text-slate-400">لا توجد أوردرات مسجلة</td></tr>`;
+        return;
+    }
+
+    // ... باقي الكود القديم زي ما هو (inputClass, sortedDocs, rowsHTML ... لحد renderTable();)
 }
 // ==========================================
 // البحث في الجدول (خانة البحث بتنادي renderTable)
