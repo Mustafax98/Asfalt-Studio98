@@ -686,11 +686,9 @@ function ordersRangeRefresh() {
     if (clr) clr.classList.toggle('hidden', !(ordersViewFrom || ordersViewTo));
     if (lastOrdersSnap) renderOrdersSnap(lastOrdersSnap);
 }
-
 function clearOrdersRange() {
     ordersViewFrom = ''; ordersViewTo = '';
-    const f = document.getElementById('orders-from'), t = document.getElementById('orders-to');
-    if (f) f.value = ''; if (t) t.value = '';
+    calUpdateLabel();
     ordersRangeRefresh();
 }
 
